@@ -20,6 +20,7 @@
 |---|---|
 | `BOT_TOKEN` | токен бота от @BotFather |
 | `BOT_USERNAME` | username бота без @ (для формирования ссылки) |
+| `BOT_MINI_APP_NAME` | короткое имя Mini App/игры в BotFather (по умолчанию `game`), даёт ссылку вида `t.me/<bot>/<name>?start=...` |
 | `SUPABASE_URL` | URL проекта Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | service role key (Settings → API) — НЕ anon key |
 | `ADMIN_IDS` | telegram_id админов через запятую, напр. `123456,987654` |

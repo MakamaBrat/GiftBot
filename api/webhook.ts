@@ -24,6 +24,9 @@ const ADMIN_IDS = (process.env.ADMIN_IDS || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// Короткое имя Mini App/игры в BotFather (t.me/<bot>/<name>?start=...)
+const MINI_APP_NAME = process.env.BOT_MINI_APP_NAME || "game";
+
 function isAdmin(id: number) {
   return ADMIN_IDS.includes(String(id));
 }
@@ -103,7 +106,7 @@ async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
   let text = s.your_gifts_header(gifts.length);
   for (const g of gifts) {
     const link = botUsername
-      ? `https://t.me/${botUsername}?start=${g.code}`
+      ? `https://t.me/${botUsername}/${MINI_APP_NAME}?start=${g.code}`
       : g.code;
     text += `<code>${link}</code> — ${statusLabel(lang, g)}\n`;
     text += `«${g.message}»\n`;
@@ -189,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           const botUsername = process.env.BOT_USERNAME;
           const link = botUsername
-            ? `https://t.me/${botUsername}?start=${gift.code}`
+            ? `https://t.me/${botUsername}/${MINI_APP_NAME}?start=${gift.code}`
             : gift.code;
           await sendMessage(chatId, s.gift_created(link), mainMenu(lang, isAdmin(tgId)));
         }
