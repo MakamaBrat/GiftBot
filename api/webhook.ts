@@ -78,6 +78,7 @@ function statusLabel(
 
 async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
   const s = t(lang);
+  const botUsername = process.env.BOT_USERNAME;
   const { data: gifts } = await supabase
     .from("gifts")
     .select("code, message, max_activations, used_count, last_redeemed_at, created_at")
@@ -92,7 +93,10 @@ async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
 
   let text = s.your_gifts_header(gifts.length);
   for (const g of gifts) {
-    text += `<code>${g.code}</code> — ${statusLabel(lang, g)}\n`;
+    const link = botUsername
+      ? `https://t.me/${botUsername}?start=gift_${g.code}`
+      : g.code;
+    text += `<code>${link}</code> — ${statusLabel(lang, g)}\n`;
     text += `«${g.message}»\n`;
     if (g.last_redeemed_at) text += s.redeemed_at(g.last_redeemed_at);
     text += "\n";

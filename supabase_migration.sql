@@ -27,3 +27,11 @@ create index if not exists gifts_owner_id_idx on public.gifts (owner_id);
 insert into public.prices (key, price)
 values ('premium', 50)
 on conflict (key) do nothing;
+
+-- 4. Отключаем RLS: доступ к этим таблицам идёт только через serverless-функцию
+-- с SUPABASE_SERVICE_ROLE_KEY, напрямую из браузера/клиента их никто не трогает.
+-- Если у вас уже настроены свои RLS-политики для gifts/prices (для другого бота,
+-- который их читает) — не выполняйте эти две строки, просто убедитесь, что
+-- используемый в Vercel ключ — это именно service_role, а не anon.
+alter table public.cabinets disable row level security;
+alter table public.gifts disable row level security;
