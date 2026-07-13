@@ -25,7 +25,7 @@ const ADMIN_IDS = (process.env.ADMIN_IDS || "")
   .filter(Boolean);
 
 // Короткое имя Mini App/игры в BotFather (t.me/<bot>/<name>?startapp=...)
-const MINI_APP_NAME = process.env.BOT_MINI_APP_NAME || "game";
+const MINI_APP_NAME = process.env.BOT_MINI_APP_NAME || "Game";
 
 function isAdmin(id: number) {
   return ADMIN_IDS.includes(String(id));
