@@ -10,6 +10,15 @@ import {
 } from "../lib/telegram.js";
 import { detectLang, t, Lang } from "../lib/i18n.js";
 
+import crypto from "node:crypto";
+
+function generateGiftCode(): string {
+  // тот же формат, что был в дефолте таблицы (12 hex-символов, uppercase),
+  // но теперь с явным префиксом gift_ прямо в значении, которое пишем в БД
+  const random = crypto.randomBytes(6).toString("hex").toUpperCase();
+  return `gift_${random}`;
+}
+
 const ADMIN_IDS = (process.env.ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -94,7 +103,7 @@ async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
   let text = s.your_gifts_header(gifts.length);
   for (const g of gifts) {
     const link = botUsername
-      ? `https://t.me/${botUsername}?start=gift_${g.code}`
+      ? `https://t.me/${botUsername}?start=${g.code}`
       : g.code;
     text += `<code>${link}</code> — ${statusLabel(lang, g)}\n`;
     text += `«${g.message}»\n`;
@@ -163,6 +172,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { data: gift, error } = await supabase
           .from("gifts")
           .insert({
+            code: generateGiftCode(),
             grant_premium: true,
             message: giftMessage,
             owner_id: tgId,
@@ -179,7 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           const botUsername = process.env.BOT_USERNAME;
           const link = botUsername
-            ? `https://t.me/${botUsername}?start=gift_${gift.code}`
+            ? `https://t.me/${botUsername}?start=${gift.code}`
             : gift.code;
           await sendMessage(chatId, s.gift_created(link), mainMenu(lang, isAdmin(tgId)));
         }
