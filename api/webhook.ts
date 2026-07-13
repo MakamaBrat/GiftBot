@@ -37,28 +37,22 @@ async function getOrCreateCabinet(
   firstName: string,
   langCode: string
 ) {
-  const { data: existing } = await supabase
+  // upsert избегает гонки, когда два апдейта от одного пользователя
+  // прилетают почти одновременно (иначе второй insert падает на дубликате)
+  const { data, error } = await supabase
     .from("cabinets")
-    .select("*")
-    .eq("telegram_id", tgId)
+    .upsert(
+      { telegram_id: tgId, username, first_name: firstName, lang_code: langCode },
+      { onConflict: "telegram_id" }
+    )
+    .select()
     .maybeSingle();
 
-  if (existing) {
-    const updates: Record<string, unknown> = {};
-    if (existing.username !== username) updates.username = username;
-    if (existing.lang_code !== langCode) updates.lang_code = langCode;
-    if (Object.keys(updates).length > 0) {
-      await supabase.from("cabinets").update(updates).eq("telegram_id", tgId);
-    }
-    return { ...existing, ...updates };
+  if (error) {
+    console.error("getOrCreateCabinet upsert error:", error);
+    return null;
   }
-
-  const { data: created } = await supabase
-    .from("cabinets")
-    .insert({ telegram_id: tgId, username, first_name: firstName, lang_code: langCode })
-    .select()
-    .single();
-  return created;
+  return data;
 }
 
 async function setState(tgId: number, state: Record<string, unknown>) {
@@ -158,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const cabinet = await getOrCreateCabinet(tgId, username, firstName, msg.from.language_code || "");
 
       if (msg.successful_payment) {
-        const state = cabinet.state || {};
+        const state = cabinet?.state || {};
         const giftMessage: string = state.pendingMessage || s.default_gift_message;
         const price: number = msg.successful_payment.total_amount;
 
@@ -198,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
 
-      const state = cabinet.state || {};
+      const state = cabinet?.state || {};
       if (state.action === "awaiting_gift_message") {
         const giftMessage = text === "-" ? s.default_gift_message : text;
         const price = await getPremiumPrice();
