@@ -33,6 +33,7 @@ type Dict = {
   stats_gifts: (n: number) => string;
   stats_redeemed: (n: number) => string;
   stats_revenue: (n: number) => string;
+  btn_back: string;
 };
 
 const dictionaries: Record<Lang, Dict> = {
@@ -62,6 +63,7 @@ const dictionaries: Record<Lang, Dict> = {
     stats_gifts: (n) => `Создано ссылок: ${n}\n`,
     stats_redeemed: (n) => `Активировано: ${n}\n`,
     stats_revenue: (n) => `Выручка: ${n} ⭐`,
+    btn_back: "⬅️ Назад",
   },
   uk: {
     greeting: (name) =>
@@ -89,6 +91,7 @@ const dictionaries: Record<Lang, Dict> = {
     stats_gifts: (n) => `Створено посилань: ${n}\n`,
     stats_redeemed: (n) => `Активовано: ${n}\n`,
     stats_revenue: (n) => `Виручка: ${n} ⭐`,
+    btn_back: "⬅️ Назад",
   },
   en: {
     greeting: (name) =>
@@ -116,6 +119,7 @@ const dictionaries: Record<Lang, Dict> = {
     stats_gifts: (n) => `Links created: ${n}\n`,
     stats_redeemed: (n) => `Redeemed: ${n}\n`,
     stats_revenue: (n) => `Revenue: ${n} ⭐`,
+    btn_back: "⬅️ Back",
   },
 };
 

@@ -43,6 +43,11 @@ function mainMenu(lang: Lang, isAdminUser: boolean): InlineKeyboard {
   return rows;
 }
 
+function backRow(lang: Lang): InlineKeyboard {
+  const s = t(lang);
+  return [[{ text: s.btn_back, callback_data: "back_to_menu" }]];
+}
+
 async function getOrCreateCabinet(
   tgId: number,
   username: string,
@@ -99,7 +104,10 @@ async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
     .limit(20);
 
   if (!gifts || gifts.length === 0) {
-    await sendMessage(chatId, s.no_gifts, mainMenu(lang, isAdmin(tgId)));
+    await sendMessage(chatId, s.no_gifts, [
+      ...backRow(lang),
+      ...mainMenu(lang, isAdmin(tgId)),
+    ]);
     return;
   }
 
@@ -113,7 +121,7 @@ async function sendMyGifts(chatId: number, tgId: number, lang: Lang) {
     if (g.last_redeemed_at) text += s.redeemed_at(g.last_redeemed_at);
     text += "\n";
   }
-  await sendMessage(chatId, text, mainMenu(lang, isAdmin(tgId)));
+  await sendMessage(chatId, text, [...backRow(lang), ...mainMenu(lang, isAdmin(tgId))]);
 }
 
 async function sendAdminStats(chatId: number, lang: Lang) {
@@ -137,7 +145,7 @@ async function sendAdminStats(chatId: number, lang: Lang) {
     s.stats_redeemed(totalRedeemed) +
     s.stats_revenue(totalRevenue);
 
-  await sendMessage(chatId, text);
+  await sendMessage(chatId, text, backRow(lang));
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -246,10 +254,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await getOrCreateCabinet(tgId, username, firstName, cq.from.language_code || "");
       await answerCallbackQuery(cq.id);
 
+      if (data === "back_to_menu") {
+        await setState(tgId, {});
+        await editMessageText(
+          chatId,
+          messageId,
+          s.choose_action,
+          mainMenu(lang, isAdmin(tgId))
+        );
+        res.status(200).end();
+        return;
+      }
+
       if (data === "create_gift") {
         const price = await getPremiumPrice();
         await setState(tgId, { action: "awaiting_gift_message" });
-        await editMessageText(chatId, messageId, s.ask_gift_text(price));
+        await editMessageText(chatId, messageId, s.ask_gift_text(price), backRow(lang));
         res.status(200).end();
         return;
       }
