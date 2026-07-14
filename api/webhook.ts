@@ -168,9 +168,9 @@ async function getReferralStats(tgId: number): Promise<{ referred: number; premi
   return { referred, premium };
 }
 
-function referralLink(tgId: number, lang: Lang): string {
+function referralLink(tgId: number): string {
   const botUsername = process.env.BOT_USERNAME;
-  const startParam = `${tgId}_${lang}`;
+  const startParam = `${tgId}`;
   return botUsername
     ? `https://t.me/${botUsername}/${MINI_APP_NAME}?startapp=${startParam}`
     : startParam;
@@ -206,7 +206,7 @@ async function sendReferralMenu(
   const stars = premium * REFERRAL_REWARD_STARS;
 
   let text = s.referral_header;
-  text += s.referral_link_label(referralLink(tgId, lang));
+  text += s.referral_link_label(referralLink(tgId));
   text += s.referral_stats(referred, premium, stars);
 
   const rows: InlineKeyboard = [];
