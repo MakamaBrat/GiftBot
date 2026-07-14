@@ -31,14 +31,22 @@ function isAdmin(id: number) {
   return ADMIN_IDS.includes(String(id));
 }
 
+// --- Реферальная программа ---
+// Сколько звёзд начисляется за каждого приглашённого, купившего Premium
+const REFERRAL_REWARD_STARS = 50;
+// Минимум приглашённых, чтобы можно было подать заявку на выплату
+const REFERRAL_PAYOUT_THRESHOLD = 100;
+
 function mainMenu(lang: Lang, isAdminUser: boolean): InlineKeyboard {
   const s = t(lang);
   const rows: InlineKeyboard = [
     [{ text: s.menu_create, callback_data: "create_gift" }],
     [{ text: s.menu_my_gifts, callback_data: "my_gifts" }],
+    [{ text: s.menu_referral, callback_data: "referral_menu" }],
   ];
   if (isAdminUser) {
     rows.push([{ text: s.menu_stats, callback_data: "admin_stats" }]);
+    rows.push([{ text: s.menu_referral_requests, callback_data: "admin_referral_requests" }]);
   }
   return rows;
 }
@@ -146,6 +154,257 @@ async function sendAdminStats(chatId: number, lang: Lang) {
     s.stats_revenue(totalRevenue);
 
   await sendMessage(chatId, text, backRow(lang));
+}
+
+async function getReferralStats(tgId: number): Promise<{ referred: number; premium: number }> {
+  // referred_by в таблице players хранит telegram_id пригласившего (как текст)
+  const { data } = await supabase
+    .from("players")
+    .select("is_premium")
+    .eq("referred_by", String(tgId));
+
+  const referred = data?.length ?? 0;
+  const premium = data?.filter((p) => p.is_premium).length ?? 0;
+  return { referred, premium };
+}
+
+function referralLink(tgId: number, lang: Lang): string {
+  const botUsername = process.env.BOT_USERNAME;
+  const startParam = `${tgId}_${lang}`;
+  return botUsername
+    ? `https://t.me/${botUsername}/${MINI_APP_NAME}?startapp=${startParam}`
+    : startParam;
+}
+
+async function getPendingReferralRequest(tgId: number) {
+  const { data } = await supabase
+    .from("referral_payout_requests")
+    .select("id")
+    .eq("telegram_id", String(tgId))
+    .eq("status", "pending")
+    .maybeSingle();
+  return data;
+}
+
+async function sendReferralMenu(
+  chatId: number,
+  tgId: number,
+  username: string,
+  lang: Lang
+) {
+  const s = t(lang);
+
+  if (!username) {
+    await sendMessage(chatId, s.referral_username_missing, [
+      ...backRow(lang),
+      ...mainMenu(lang, isAdmin(tgId)),
+    ]);
+    return;
+  }
+
+  const { referred, premium } = await getReferralStats(tgId);
+  const stars = premium * REFERRAL_REWARD_STARS;
+
+  let text = s.referral_header;
+  text += s.referral_link_label(referralLink(tgId, lang));
+  text += s.referral_stats(referred, premium, stars);
+
+  const rows: InlineKeyboard = [];
+
+  if (referred >= REFERRAL_PAYOUT_THRESHOLD) {
+    const pending = await getPendingReferralRequest(tgId);
+    if (pending) {
+      text += s.referral_pending_notice;
+    } else {
+      text += s.referral_ready;
+      rows.push([{ text: s.referral_apply_button, callback_data: "referral_apply" }]);
+    }
+  } else {
+    text += s.referral_progress(REFERRAL_PAYOUT_THRESHOLD - referred);
+  }
+
+  text += "\n" + s.referral_disclaimer;
+
+  rows.push(...backRow(lang));
+  rows.push(...mainMenu(lang, isAdmin(tgId)));
+
+  await sendMessage(chatId, text, rows);
+}
+
+async function notifyAdminsAboutRequest(
+  requestId: number,
+  tgId: number,
+  username: string,
+  referred: number,
+  premium: number,
+  stars: number,
+  createdAt: string
+) {
+  for (const adminId of ADMIN_IDS) {
+    const adminLang: Lang = "uk";
+    const s = t(adminLang);
+    const text = s.admin_referral_request_item(
+      username,
+      String(tgId),
+      referred,
+      premium,
+      stars,
+      createdAt
+    );
+    await sendMessage(adminId, text, [
+      [
+        { text: s.btn_approve, callback_data: `referral_approve_${requestId}` },
+        { text: s.btn_reject, callback_data: `referral_reject_${requestId}` },
+      ],
+    ]);
+  }
+}
+
+async function handleReferralApply(chatId: number, tgId: number, username: string, lang: Lang) {
+  const s = t(lang);
+  const { referred, premium } = await getReferralStats(tgId);
+
+  if (referred < REFERRAL_PAYOUT_THRESHOLD) {
+    await sendMessage(chatId, s.referral_apply_not_eligible, backRow(lang));
+    return;
+  }
+
+  const existing = await getPendingReferralRequest(tgId);
+  if (existing) {
+    await sendMessage(chatId, s.referral_apply_already_pending, backRow(lang));
+    return;
+  }
+
+  const stars = premium * REFERRAL_REWARD_STARS;
+
+  const { data: request, error } = await supabase
+    .from("referral_payout_requests")
+    .insert({
+      telegram_id: String(tgId),
+      username,
+      lang,
+      referred_count: referred,
+      premium_count: premium,
+      stars_amount: stars,
+      status: "pending",
+    })
+    .select()
+    .single();
+
+  if (error || !request) {
+    console.error("referral request insert error:", error);
+    await sendMessage(chatId, s.referral_apply_error, backRow(lang));
+    return;
+  }
+
+  await sendMessage(
+    chatId,
+    s.referral_apply_success(stars),
+    [...backRow(lang), ...mainMenu(lang, isAdmin(tgId))]
+  );
+
+  await notifyAdminsAboutRequest(
+    request.id,
+    tgId,
+    username,
+    referred,
+    premium,
+    stars,
+    new Date(request.created_at).toLocaleString("uk-UA")
+  );
+}
+
+async function sendAdminReferralRequests(chatId: number, lang: Lang) {
+  const s = t(lang);
+  const { data: requests } = await supabase
+    .from("referral_payout_requests")
+    .select("id, telegram_id, username, referred_count, premium_count, stars_amount, created_at")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(15);
+
+  if (!requests || requests.length === 0) {
+    await sendMessage(chatId, s.admin_referral_no_requests, backRow(lang));
+    return;
+  }
+
+  await sendMessage(chatId, s.admin_referral_requests_header, undefined);
+
+  for (const r of requests) {
+    const text = s.admin_referral_request_item(
+      r.username,
+      r.telegram_id,
+      r.referred_count,
+      r.premium_count,
+      r.stars_amount,
+      new Date(r.created_at).toLocaleString("uk-UA")
+    );
+    await sendMessage(chatId, text, [
+      [
+        { text: s.btn_approve, callback_data: `referral_approve_${r.id}` },
+        { text: s.btn_reject, callback_data: `referral_reject_${r.id}` },
+      ],
+    ]);
+  }
+
+  await sendMessage(chatId, s.choose_action, backRow(lang));
+}
+
+async function handleReferralDecision(
+  chatId: number,
+  requestId: number,
+  approve: boolean,
+  adminLang: Lang
+) {
+  const adminS = t(adminLang);
+
+  const { data: request } = await supabase
+    .from("referral_payout_requests")
+    .select("id, telegram_id, stars_amount, status, lang")
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (!request) {
+    await sendMessage(chatId, adminS.referral_apply_error, backRow(adminLang));
+    return;
+  }
+
+  if (request.status !== "pending") {
+    // уже обработана другим админом — просто сообщаем
+    await sendMessage(
+      chatId,
+      approve ? adminS.referral_request_marked_approved : adminS.referral_request_marked_rejected,
+      backRow(adminLang)
+    );
+    return;
+  }
+
+  await supabase
+    .from("referral_payout_requests")
+    .update({
+      status: approve ? "approved" : "rejected",
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", requestId);
+
+  await sendMessage(
+    chatId,
+    approve ? adminS.referral_request_marked_approved : adminS.referral_request_marked_rejected,
+    backRow(adminLang)
+  );
+
+  // Уведомляем заявителя на языке, который был сохранён в момент подачи заявки
+  const userLang: Lang = detectLang(request.lang);
+  const userS = t(userLang);
+  const applicantId = Number(request.telegram_id);
+  if (applicantId) {
+    await sendMessage(
+      applicantId,
+      approve
+        ? userS.referral_approved_notify(request.stars_amount)
+        : userS.referral_rejected_notify
+    );
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -282,6 +541,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (data === "admin_stats" && isAdmin(tgId)) {
         await sendAdminStats(chatId, lang);
+        res.status(200).end();
+        return;
+      }
+
+      if (data === "referral_menu") {
+        await sendReferralMenu(chatId, tgId, username, lang);
+        res.status(200).end();
+        return;
+      }
+
+      if (data === "referral_apply") {
+        await handleReferralApply(chatId, tgId, username, lang);
+        res.status(200).end();
+        return;
+      }
+
+      if (data === "admin_referral_requests" && isAdmin(tgId)) {
+        await sendAdminReferralRequests(chatId, lang);
+        res.status(200).end();
+        return;
+      }
+
+      if (data.startsWith("referral_approve_") && isAdmin(tgId)) {
+        const requestId = Number(data.replace("referral_approve_", ""));
+        if (requestId) await handleReferralDecision(chatId, requestId, true, lang);
+        res.status(200).end();
+        return;
+      }
+
+      if (data.startsWith("referral_reject_") && isAdmin(tgId)) {
+        const requestId = Number(data.replace("referral_reject_", ""));
+        if (requestId) await handleReferralDecision(chatId, requestId, false, lang);
         res.status(200).end();
         return;
       }
